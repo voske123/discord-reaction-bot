@@ -34,6 +34,7 @@ import requests
 import asyncio
 import base64
 import json
+import datetime
 from dotenv import load_dotenv
 
 
@@ -180,19 +181,22 @@ async def check_channels(guild):
 
   for channel in channel_list:
     channel_exists = False
-    for existing_channel in guild.text_channels:
+    category = discord.utils.get(guild.categories, name=channel_list[channel]["category"])
+    for existing_channel in category.text_channels:
       existing_channel = str(existing_channel)
-      if existing_channel in channel_list[channel]["name"]:
+      if channel_list[channel]["name"] == existing_channel:
         channel_exists = True
         break
       
     if channel_exists == False:
-      category = discord.utils.get(guild.categories, name=channel_list[channel]["category"])
       channel_name = channel_list[channel]["name"]
       channel_position = channel_list[channel]["position"]
 
-      print(f"Channel: {channel_name} is being created in Categorie: {category}")
+      print(f"Channel: {channel_name} is being created in Category: {category}")
       await category.create_text_channel(name=channel_name, position=channel_position)
+    else:
+      print(f"Channel: {channel_list[channel]['name']} exists in Category: {channel_list[channel]['category']}")
+
 
 
 async def send_squad_lists(squad_lists, squad_list_message, mission_name):
@@ -281,7 +285,50 @@ async def reaction_delete(emoji_list, emoji_filter, information, squad_list_mess
                 information['mission_name']
               )
 
-  return information  
+  return information
+
+
+async def old_missions(attendance_channel, squad_list_channel, mission_list, emoji_list, current_time):
+  mission_count = 0
+  async for reposted_message in attendance_channel.history(limit=50, oldest_first=True):
+    reposted_message_created = round(datetime.datetime.timestamp(reposted_message.created_at))
+    if reposted_message.author.name == bot_name:
+      for keyword in contract_keywords:
+        if reposted_message.content.startswith(keyword):
+          mission_name = regex_compiler(reposted_message, contract_keywords[keyword])
+          mission_date = regex_compiler(reposted_message, contract_keywords["date"])
+          if int(mission_date) > (current_time - 1814400):
+            async for squad_list_message in squad_list_channel.history(limit=50, oldest_first=True):
+              squad_list_message_created = round(datetime.datetime.timestamp(squad_list_message.created_at))
+              if (reposted_message_created <= squad_list_message_created) and (reposted_message_created + 10 > squad_list_message_created):
+                mission_messages = {
+                  "mission_name": mission_name,
+                  "mission_date": mission_date,
+                  "reposted_message": reposted_message,
+                  "squad_list_message": squad_list_message,
+                  "squad_list": {
+                    "Zeus_reacted"    : [],
+                    "Command_reacted" : [],
+                    "SL_reacted"      : [],
+                    "Medic_reacted"   : [],
+                    "MSC_reacted"     : [],
+                    "Maybe_reacted"   : []
+                  }
+                }
+
+                for emoji in emoji_list:
+                  for reaction in reposted_message.reactions:
+                    reaction_emoji = (":"+str(reaction.emoji.name)+":"+str(reaction.emoji.id))
+                    if reaction_emoji == emoji_list[emoji]:
+                      emoji_reacted = emoji+"_reacted"
+                      async for user in reaction.users():
+                        if not (user.name == bot_name):
+                          mission_messages["squad_list"][emoji_reacted].append(user.name)
+                mission_list += [{mission_count:mission_messages}]
+                await send_squad_lists(mission_messages["squad_list"], squad_list_message, mission_name)
+                mission_count += 1
+  
+  return mission_list
 
 
 
@@ -370,8 +417,9 @@ async def on_ready():
   Bot startup
   '''
   global bot_startup
+  global mission_list
   guild = discord.utils.get(client.guilds, name = server_name)
-
+  current_time = round(datetime.datetime.now().timestamp())
   print(
     f'{client.user} has connected to the following guild:\n'
     f'Guild name: {guild.name}, Guild id: {guild.id}'
@@ -384,7 +432,18 @@ async def on_ready():
     channel_list["attendance-setup"]["category"],
     channel_list["attendance-setup"]["name"]
   )
+  attendance_channel = await get_channel(
+    guild,
+    channel_list["attendance"]["category"],
+    channel_list["attendance"]["name"]
+  )
+  squad_list_channel = await get_channel(
+    guild,
+    channel_list["squad-list"]["category"],
+    channel_list["squad-list"]["name"]
+  )
 
+  mission_list = await old_missions(attendance_channel, squad_list_channel, mission_list, emoji_list, current_time)
   bot_startup = await attendance_setup_channel.send(bot_startup_message)
 
 
@@ -394,7 +453,6 @@ async def on_message(message):
   Bot message recieved
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
-  global mission_list
 
   try:
     message.channel.name
