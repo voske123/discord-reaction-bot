@@ -191,40 +191,38 @@ async def check_channels(guild):
     if channel_exists == False:
       channel_name = channel_list[channel]["name"]
       channel_position = channel_list[channel]["position"]
+      channel_topic = channel_list[channel]["topic"]
 
       print(f"Channel: {channel_name} is being created in Category: {category}")
-      await category.create_text_channel(name=channel_name, position=channel_position)
+      await category.create_text_channel(name=channel_name, position=channel_position, topic=channel_topic)
     else:
       print(f"Channel: {channel_list[channel]['name']} exists in Category: {channel_list[channel]['category']}")
-
 
 
 async def send_squad_lists(squad_lists, squad_list_message, mission_name):
   '''
   Function to adjust the squad list message with the signed up users.
   '''
-  total_player_count = (
-    len(squad_lists["Zeus_reacted"])     +
-    len(squad_lists["Command_reacted"])  +
-    len(squad_lists["SL_reacted"])       +
-    len(squad_lists["Medic_reacted"])    +
-    len(squad_lists["MSC_reacted"])      +
-    len(squad_lists["Maybe_reacted"])
+  message_content = [
+    '**Squad list for Mission: **'  + mission_name + "\n\n"
+  ]
+  total_player_count = 0
+  for reaction in squad_lists:
+    name = reaction.split("_")[0]
+    if len(squad_lists[reaction]) >= 1:
+      total_player_count = total_player_count + len(squad_lists[reaction])
+      message_content.append(
+        f'**{name}**: ' + ' '.join(squad_lists[reaction]) + "." + "\n"
+      )
+
+  message_content.append(
+    '\n**Total attendance**: ' + str(total_player_count)
   )
 
-  message_content = (
-    '**Squad list for Mission: **'  + mission_name                                        + "\n\n" +
-    '**Zeus**: '                    + ' '.join(squad_lists["Zeus_reacted"])     +"."      + "\n\n" +
-    '**Commanding**: '              + ' '.join(squad_lists["Command_reacted"])  +"."      + "\n\n" +
-    '**Squad Leaders**: '           + ' '.join(squad_lists["SL_reacted"])       +"."      + "\n\n" +
-    '**Medics**: '                  + ' '.join(squad_lists["Medic_reacted"])    +"."      + "\n\n" + 
-    '**Unassigned**: '              + ' '.join(squad_lists["MSC_reacted"])      +"."      + '\n\n' +
-    '**Maybe**: '                   + ' '.join(squad_lists["Maybe_reacted"])    +"."      + '\n\n' +
-    '**Total attendance**: '        + str(total_player_count)
-  )
+  message_content = ''.join(tuple(message_content))
 
   await asyncio.sleep(1)
-  await squad_list_message.edit(content=message_content)   
+  await squad_list_message.edit(content=message_content)
 
 
 async def get_channel(guild, category_name, channel_name):
@@ -254,7 +252,12 @@ async def emoji_add(emoji_list, emoji_filter, information, squad_list_message, e
   for emoji in emoji_list:
     if emoji_filter == emoji_list[emoji]:
       emoji_reacted = emoji + "_reacted"
-      information["squad_list"][emoji_reacted].append(event_member_name)
+      try:
+        information["squad_list"][emoji_reacted].append(event_member_name)
+      except KeyError:
+        information["squad_list"][emoji_reacted] = []
+        information["squad_list"][emoji_reacted].append(event_member_name)
+    
       print(f"Added {event_member_name} to the {emoji_reacted} list for mission: {information['mission_name']}.")
       await send_squad_lists(
         information["squad_list"],
@@ -297,23 +300,18 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
         if reposted_message.content.startswith(keyword):
           mission_name = regex_compiler(reposted_message, contract_keywords[keyword])
           mission_date = regex_compiler(reposted_message, contract_keywords["date"])
-          if int(mission_date) > (current_time - 1814400):
-            async for squad_list_message in squad_list_channel.history(limit=50, oldest_first=True):
-              squad_list_message_created = round(datetime.datetime.timestamp(squad_list_message.created_at))
-              if (reposted_message_created <= squad_list_message_created) and (reposted_message_created + 10 > squad_list_message_created):
+          async for squad_list_message in squad_list_channel.history(limit=50, oldest_first=True):
+            squad_list_message_created = round(datetime.datetime.timestamp(squad_list_message.created_at))
+            if (reposted_message_created <= squad_list_message_created) and (reposted_message_created + 10 > squad_list_message_created):
+              if int(mission_date) < (current_time - 1814400):
+                await squad_list_message.delete()
+              else:
                 mission_messages = {
                   "mission_name": mission_name,
                   "mission_date": mission_date,
                   "reposted_message": reposted_message,
                   "squad_list_message": squad_list_message,
-                  "squad_list": {
-                    "Zeus_reacted"    : [],
-                    "Command_reacted" : [],
-                    "SL_reacted"      : [],
-                    "Medic_reacted"   : [],
-                    "MSC_reacted"     : [],
-                    "Maybe_reacted"   : []
-                  }
+                  "squad_list": {}
                 }
 
                 for emoji in emoji_list:
@@ -327,7 +325,7 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
                 mission_list += [{mission_count:mission_messages}]
                 await send_squad_lists(mission_messages["squad_list"], squad_list_message, mission_name)
                 mission_count += 1
-  
+
   return mission_list
 
 
@@ -344,33 +342,38 @@ bot_name = os.getenv("DISCORD_BOT_NAME")
 client = discord.Client(intents=discord.Intents.all())
 
 channel_list = {
-  "attendance-setup":
+  "zeus-setup":
     {
-    "category":"Missions",
-    "name":"attendance-setup",
-    "position":3
+    "category":"MISSIONS",
+    "name":"zeus-setup",
+    "position":3,
+    "topic": "In this channel you can send the bot commands to make attendance missions and copy missionfiles to the server."
     },
   "attendance":
     {
-    "category":"Missions",
+    "category":"MISSIONS",
     "name":"attendance",
-    "position":0
+    "position":1,
+    "topic": "This channel shows the attendance messages for the missions, please use the reactions to select the role you play."
     },
   "squad-list":
     {
-    "category":"Missions",
+    "category":"MISSIONS",
     "name":"squad-list",
-    "position":2
+    "position":2,
+    "topic": "In this channel the squad lists for the missions are being shown based on the reactions in the attendance channel."
     },
   "announcements":
     {
-    "category":"UNIT Information",
+    "category":"UNIT INFORMATION",
     "name":"📣announcements",
-    "position":2
+    "position":2,
+    "topic": "Important announcements are shown here."
     }
 }
 mission_list = []
 mission_count = 0
+mission_folder_path = "E:\Games\ArmA3\A3Master\mpmissions"
 
 contract_keywords = {
   "Contract ": r"(Contract .*)",
@@ -381,13 +384,13 @@ contract_keywords = {
 }
 command_messages = {
   "help": "?help",
-  "exit": "?exit"
+  "exit": "?exit",
+  "add_mission": "?add_mission"
 }
 
 bot_startup = ""
 bot_startup_message = f"The bot is active now, type '{command_messages['help']}' for help and '{command_messages['exit']}' to shutdown."
 shutdown_message = "The bot will shutdown in 5 seconds."
-
 squad_list_message_init = "Squad list waiting to be build for mission: "
 announcements_template = "@everyone The attendance for **{}** on <t:{}:F>! Please make sure to mark if you plan to attend."
 help_message_template = (
@@ -427,10 +430,10 @@ async def on_ready():
 
   await check_channels(guild)
   
-  attendance_setup_channel = await get_channel(
+  zeus_setup_channel = await get_channel(
     guild,
-    channel_list["attendance-setup"]["category"],
-    channel_list["attendance-setup"]["name"]
+    channel_list["zeus-setup"]["category"],
+    channel_list["zeus-setup"]["name"]
   )
   attendance_channel = await get_channel(
     guild,
@@ -444,7 +447,7 @@ async def on_ready():
   )
 
   mission_list = await old_missions(attendance_channel, squad_list_channel, mission_list, emoji_list, current_time)
-  bot_startup = await attendance_setup_channel.send(bot_startup_message)
+  bot_startup = await zeus_setup_channel.send(bot_startup_message)
 
 
 @client.event
@@ -464,7 +467,7 @@ async def on_message(message):
     print("Last message sent by bot, skipping.")
     return
   
-  elif message.channel.name == channel_list["attendance-setup"]["name"] and not message.content.find("?") == 0:
+  elif message.channel.name == channel_list["zeus-setup"]["name"] and not message.content.find("?") == 0:
     mission_name = ""
     mission_messages = {}
     for keyword in contract_keywords:
@@ -498,14 +501,7 @@ async def on_message(message):
         "mission_date": mission_date,
         "reposted_message": reposted_message,
         "squad_list_message": squad_list_message,
-        "squad_list": {
-          "Zeus_reacted"    : [],
-          "Command_reacted" : [],
-          "SL_reacted"      : [],
-          "Medic_reacted"   : [],
-          "MSC_reacted"     : [],
-          "Maybe_reacted"   : []
-        }
+        "squad_list": {}
       }
 
       mission_count = 0
@@ -521,7 +517,7 @@ async def on_message(message):
       await announcements_channel.send(announcements_message)
 
       if mission_list[mission_count] != {}:
-        await asyncio.sleep(10)
+        await asyncio.sleep(10) 
         await message.delete()
 
   elif message.content.find("?") == 0:
@@ -531,7 +527,7 @@ async def on_message(message):
       help_message_content = help_message_template.format(
         bot_name,
         server_name,
-        channel_list['attendance-setup']['name'],
+        channel_list['zeus-setup']['name'],
         channel_list['squad-list']['name']
       )
 
@@ -547,6 +543,16 @@ async def on_message(message):
       await bot_startup.delete()
       await asyncio.sleep(1)
       await client.close()
+    
+    elif message.content.lower() == command_messages["add_mission"]: 
+      if message.channel.name == channel_list["zeus-setup"]["name"]:
+
+        for attachment in message.attachments:
+          path = f"{mission_folder_path}\\{attachment.filename}"          
+          await attachment.save(path)
+          print(f"{attachment.filename} saved to {mission_folder_path}")
+        await asyncio.sleep(5)
+        await message.delete()
 
 
 @client.event
@@ -569,7 +575,13 @@ async def on_raw_reaction_add(event):
             information["squad_list_message"].id
           )
 
-          information = await emoji_add(emoji_list, emoji_filter, information, squad_list_message, event_member_name)
+          information = await emoji_add(
+            emoji_list,
+            emoji_filter,
+            information,
+            squad_list_message,
+            event_member_name
+          )
 
 
 @client.event
@@ -595,7 +607,13 @@ async def on_raw_reaction_remove(event):
           information["reposted_message"].id
         )
         
-        information = await reaction_delete(emoji_list, emoji_filter, information, squad_list_message, reposted_message)
+        information = await reaction_delete(
+          emoji_list,
+          emoji_filter,
+          information,
+          squad_list_message,
+          reposted_message
+        )
 
 
 
