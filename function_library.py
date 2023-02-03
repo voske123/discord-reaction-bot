@@ -19,6 +19,11 @@ import datetime
 def get_server_ids(base_api_url, headers, server_name):
   '''
   Function to save all the id's from the guild the bot is joined.
+
+  PARAMS
+  - base_api_url
+  - headers
+  - server_name
   '''
   guilds_url = f"{base_api_url}/users/@me/guilds"
   servers = requests.get(guilds_url, headers=headers)
@@ -38,6 +43,11 @@ def get_server_ids(base_api_url, headers, server_name):
 def check_custom_emoji(base_api_url, headers, server_id):
   '''
   Function to check if the custom emoji's are available on the server
+
+  PARAMS
+  - base_api_url
+  - headers
+  - server_id
   '''
   emoji_count = 0
   emoji_list = {
@@ -75,6 +85,12 @@ def check_custom_emoji(base_api_url, headers, server_id):
 def create_custom_emoji(base_api_url, headers, server_name, bot_token):
   '''
   Function to create the custom emoji's if necesary
+
+  PARAMS
+  - base_api_url
+  - headers
+  - server_name
+  - bot_token
   '''
   server_ids = get_server_ids(base_api_url, headers, server_name)
   for server_id in server_ids:
@@ -120,6 +136,10 @@ def create_custom_emoji(base_api_url, headers, server_name, bot_token):
 def regex_compiler(message, key):
   '''
   Function to recompile regex
+
+  PARAMS
+  - message
+  - key
   '''
   regex = re.compile(key)
   text = re.findall(regex, message.content)[0]
@@ -130,6 +150,10 @@ def regex_compiler(message, key):
 async def check_category(guild, channel_list):
   '''
   Function to check if the necesary categories are on the server
+
+  PARAMS
+  - guild
+  - channel_list
   '''
   for channel in channel_list:
     for category in channel_list[channel]:
@@ -149,6 +173,10 @@ async def check_category(guild, channel_list):
 async def check_channels(guild, channel_list):
   '''
   Function to check if the necesary channels are on the server
+
+  PARAMS
+  - guild
+  - channel_list
   '''
   await check_category(guild, channel_list)
 
@@ -175,6 +203,11 @@ async def check_channels(guild, channel_list):
 async def send_squad_lists(squad_lists, squad_list_message, mission_name):
   '''
   Function to adjust the squad list message with the signed up users.
+
+  PARAMS
+  - squad_lists
+  - squad_lists_message
+  - mission_name
   '''
   message_content = [
     '**Squad list for Mission: **'  + mission_name + "\n\n"
@@ -201,6 +234,11 @@ async def send_squad_lists(squad_lists, squad_list_message, mission_name):
 async def get_channel(guild, category_name, channel_name):
   '''
   Function to get the channel from a channel name
+
+  PARAMS
+  - guild
+  - category_name
+  - channel_name
   '''
   category = discord.utils.get(guild.categories, name=category_name)
   channel = discord.utils.get(category.channels, name=channel_name)
@@ -211,6 +249,12 @@ async def get_channel(guild, category_name, channel_name):
 async def get_message(guild, category_name, channel_name, message_id):
   '''
   Function to get a message from a message id
+
+  PARAMS
+  - guild
+  - category_name
+  - channel_name
+  - message_id
   '''
   channel = await get_channel(guild, category_name, channel_name)
   message = await channel.fetch_message(message_id)
@@ -221,6 +265,13 @@ async def get_message(guild, category_name, channel_name, message_id):
 async def reaction_added(emoji_list, emoji_filter, information, squad_list_message, event_member_name):
   '''
   Function to check what emoji got added and adjust the reacted lists
+
+  PARAMS
+  - emoji_list
+  - emoji_filter
+  - information
+  - squad_list_message
+  - event_member_name
   '''
   for emoji in emoji_list:
     if emoji_filter == emoji_list[emoji]:
@@ -244,6 +295,13 @@ async def reaction_added(emoji_list, emoji_filter, information, squad_list_messa
 async def reaction_deleted(emoji_list, emoji_filter, information, squad_list_message, reposted_message):
   '''
   Function to check what emoji got removed and adjust the reacted lists
+
+  PARAMS
+  - emoji_list
+  - emoji_filter
+  - information
+  - squad_list_message
+  - reposted_message
   '''
   for emoji in emoji_list:
     for reaction in reposted_message.reactions:
@@ -267,6 +325,15 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
   '''
   Function to check old messages on startup.
   If the mission time < 3 weeks before current time then the mission is saved in the mission_list.
+  
+  PARAMS
+  - attendance_channel
+  - squad_list_channel
+  - mission_list
+  - emoji_list
+  - current_time
+  - contract_keywords
+  - bot_name
   '''
   mission_count = 0
   async for reposted_message in attendance_channel.history(limit=50, oldest_first=True):
@@ -297,7 +364,12 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
                       emoji_reacted = emoji+"_reacted"
                       async for user in reaction.users():
                         if not (user.name == bot_name):
-                          mission_messages["squad_list"][emoji_reacted].append(user.name)
+                          try:
+                            mission_messages["squad_list"][emoji_reacted].append(user.name)
+                          except KeyError:
+                            mission_messages["squad_list"][emoji_reacted] = []
+                            mission_messages["squad_list"][emoji_reacted].append(user.name)
+
                 mission_list += [{mission_count:mission_messages}]
                 await send_squad_lists(mission_messages["squad_list"], squad_list_message, mission_name)
                 mission_count += 1
@@ -305,54 +377,69 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
   return mission_list
 
 
+async def reply_message(message, ttl, content):
+  '''
+  Function to save mission file to the correct folder on the server with !add_mission command.
+
+  PARAMS
+  - message
+  - time to live (in seconds)
+  - content
+  '''
+  reply = await message.reply(content)
+  await asyncio.sleep(ttl)
+  await reply.delete()
+  await asyncio.sleep(1)
+  await message.delete()
+
+
 async def save_attachements(message, command_messages, mission_folder_path, bot_messages):
   '''
   Function to save mission file to the correct folder on the server with !add_mission command.
+
+  PARAMS
+  - message
+  - command_messages
+  - mission_folder_path
+  - bot_messages
   '''
   if len(message.attachments) > 0:
-    if message.content.lower() == command_messages["add_mission"]:
-      for role in message.author.roles:
-        if role.name == "Mission_Upload":
-          for attachment in message.attachments:
-            if attachment.url.endswith('.pbo'):
-              path = f"{mission_folder_path}\\{attachment.filename}"         
-              try:
-                with open(path, "r") as file:
-                  reply = await message.reply(content=bot_messages["file_exists"])
-                  await asyncio.sleep(20)
-                  await reply.delete()
-                  await message.delete()
-              except FileNotFoundError:
-                await attachment.save(path)
-                reply = await message.reply(content=bot_messages["attachement_saved"])
-                await asyncio.sleep(5)
-                await reply.delete()
-                await message.delete()
-            else:
-              reply = await message.reply(content=bot_messages["incorrect_format"])
-              await asyncio.sleep(20)
-              await reply.delete()
-              await message.delete()
+    for role in message.author.roles:
+      if role.name == "Mission_Upload":
+        role_found = True
+        break
+      
+    if role_found == True:
+      for attachment in message.attachments:
+        if attachment.url.endswith('.pbo'):
+          path = f"{mission_folder_path}\\{attachment.filename}"         
+          try:
+            with open(path, "r") as file:
+              await reply_message(message, 30, bot_messages["file_exists"])
+          except FileNotFoundError:
+            await attachment.save(path)
+            await reply_message(message, 20, bot_messages["attachement_saved"])
         else:
-          reply = await message.reply(content=bot_messages["insufficient_rights"])
-          await asyncio.sleep(20)
-          await reply.delete()
-          await message.delete()
+          await reply_message(message, 30, bot_messages["incorrect_format"])
+    else:
+      await reply_message(message, 30, bot_messages["insufficient_rights"])
   else:
-    reply = await message.reply(content=bot_messages["no_attachments"])
-    await asyncio.sleep(20)
-    await reply.delete()
-    await message.delete()
+    await reply_message(message, 30, bot_messages["no_attachments"])
 
 
 async def purge_channel_messages(guild, message, channel_list):
   '''
   Function to purge all the messages from the 3 predefined channels for testing.
+
+  PARAMS
+  - guild
+  - message
+  - channel_list
   '''
   for role in message.author.roles:
     if role.name == "Admin":
       for channel in channel_list:
-        if channel.name != channel_list["announcements"]["name"]:
+        if not (channel_list[channel]["name"] == channel_list["announcements"]["name"]):
           channel_to_purge = await get_channel(
             guild,
             channel_list[channel]["category"],
@@ -366,6 +453,12 @@ async def purge_channel_messages(guild, message, channel_list):
 async def bot_shutdown(client, message, bot_messages, bot_startup):
   '''
   Function to shutdown the bot upon a message.
+  
+  PARAMS:
+  - client
+  - message
+  - bot_messages
+  - bot_startup
   '''
   print("Shutdown command executed by: " + message.author.name)
   await bot_startup.edit(content=bot_messages["shutdown_message"])
@@ -380,6 +473,13 @@ async def bot_shutdown(client, message, bot_messages, bot_startup):
 async def reply_help_message(message, help_message_template, channel_list, bot_name, server_name):
   '''
   Function to reply a help message to a ?help request.
+
+  PARAMS:
+  - message
+  - help_message_template
+  - channel_list
+  - bot_name
+  - server_name
   '''
   help_message_content = help_message_template.format(
     bot_name,
@@ -387,9 +487,4 @@ async def reply_help_message(message, help_message_template, channel_list, bot_n
     channel_list['zeus-setup']['name'],
     channel_list['squad-list']['name']
   )
-
-  reply = await message.reply(help_message_content)
-  await asyncio.sleep(30)
-  await reply.delete()
-  await message.delete()
-
+  await reply_message(message, 30, help_message_content)

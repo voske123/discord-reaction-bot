@@ -108,6 +108,7 @@ bot_messages = {
   "shutdown_message": "The bot will shutdown in 5 seconds.",
   "squad_list_message_init": "Squad list waiting to be build for mission: ",
   "announcements_template": "@everyone The attendance for **{}** on <t:{}:F> is up! Please make sure to mark if you plan to attend.",
+  "contract_accepted": "The contract is correctly formatted and is now ready to be used.\nThis message deletes itself in 5 seconds.",
   "file_exists": "This mission is already on the server, please give the mission a different name.\nThis message deletes itself in 20 seconds.",
   "incorrect_format": "Please upload a correct missionfile for arma3.\nThis message deletes itself in 20 seconds.",
   "incorrect_time": "You have entered an incorrect Date for this mission, its starting time is older than the current time.\nThis message deletes itself in 20 seconds.",
@@ -138,6 +139,8 @@ emoji_list = create_custom_emoji(
 async def on_ready():
   '''
   Bot startup
+
+  PARAMS
   '''
   global bot_startup
   global mission_list
@@ -182,6 +185,9 @@ async def on_ready():
 async def on_message(message):
   '''
   Bot message recieved
+
+  PARAMS
+  - message
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
   current_time = round(datetime.datetime.now().timestamp())
@@ -236,7 +242,6 @@ async def on_message(message):
 
     else:
       mission_name = ""
-      mission_messages = {}
       for keyword in contract_keywords:
         if message.content.startswith(keyword):
           mission_name = regex_compiler(message, contract_keywords[keyword])
@@ -284,20 +289,20 @@ async def on_message(message):
         await announcements_channel.send(announcements_message)
 
         if mission_list[mission_count] != {}:
-          await asyncio.sleep(10) 
-          await message.delete()
+          await reply_message(message, 10, bot_messages["contract_accepted"])
 
       elif mission_name != "" and int(mission_date) <= current_time:
-        reply = await message.reply(bot_messages["incorrect_time"])
-        await asyncio.sleep(20)
-        await reply.delete()
-        await message.delete()
+        await reply_message(message, 20, bot_messages["incorrect_time"])
+
 
 
 @client.event
 async def on_raw_reaction_add(event):
   '''
   Bot reaction added
+
+  PARAMS
+  - event
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
   emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
@@ -326,6 +331,9 @@ async def on_raw_reaction_add(event):
 async def on_raw_reaction_remove(event):
   '''
   Bot reaction removed
+
+  PARAMS
+  - event
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
   emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
@@ -343,7 +351,7 @@ async def on_raw_reaction_remove(event):
           channel_list["attendance"]["category"],
           channel_list["attendance"]["name"],
           information["reposted_message"].id
-        )
+          )
         information = await reaction_deleted(
           emoji_list,
           emoji_filter,
