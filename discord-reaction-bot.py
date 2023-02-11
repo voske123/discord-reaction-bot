@@ -29,7 +29,6 @@ ChatGPT for code explainations
 
 import os
 import discord
-import asyncio
 import datetime
 from function_library import *
 from dotenv import load_dotenv
@@ -86,35 +85,47 @@ contract_keywords = {
   "Operation ": r"(Operation .*)",
   "**Contract ": r"..(Contract .*)..",
   "**Operation ": r"..(Operation .*)..",
-  "date": r"Date: <t:(.*):F>"
+  "_date": r"Date: <t:(.*):F>",
+  "_additional_mods": r"Additional mods: (.*)",
+  "_air_assets": r"Air Assets: "
   }
 command_messages = {
-  "help": "?help",
-  "exit": "?exit",
+  "help": "!help",
+  "exit": "!exit",
   "add_mission": "!add_mission",
   "clear_messages": "!clear_messages"
   }
 
 bot_startup = ""
 help_message_template = (
-  "**Help for the {}**\n\n" +
-  "This message is a reply to the ?help-command in the server: {}.\n\n" +
-  "The bot works with a few keywords in the {}:\n\t- 'Contract '\n\t- 'Operation '\n\t- '**Contract **'\n\t- '**Operation **'\n\n" 
-  "Upon starting the mission briefing with these words the bot will repost the briefing in the attendance channel and add the custom emoji's. "
-  "After this the players can select their roles and then there will be a username posted in the {} channel."      
+  f"{bot_name} has the following commands:"+
+  f"\n\n\t**{command_messages['help']}**: Shows this help message."+
+  f"\n\t**{command_messages['exit']}**: Shuts the bot down (admin only in {channel_list['zeus-setup']['name']})."+
+  f"\n\t**{command_messages['add_mission']}**: Upload a mission to the server (Mission_Upload role in {channel_list['zeus-setup']['name']})."+
+  f"\n\t**{command_messages['clear_messages']}**: Clears all messages in **{channel_list['zeus-setup']['name']}**, **{channel_list['squad-list']['name']}**, **{channel_list['attendance']['name']}** (admin only)."+
+  f"\n\nInner working of the bot:"+
+  f"\n\nIn the {channel_list['zeus-setup']['name']} you can setup a contract with the following syntax:"+
+  f"\n\tStart of the message with one of the following options: Contract (PMC OP) or Operation (Side OP) + a mission name. These can be in normal or in **markdown**."+
+  f"\n\tSecond line of the message need to be the date with the hammertime syntax: Date: <t:time:F>."+
+  f"\n\tThe rest of the message can be own formatting, just make sure everything is in one post."+
+  f"\n\nThe bot will automatically add the message in attendance, add the reactions to the message and posts an attendance with the mission name and date."+
+  f"\nUpon adding or removing reactions on the message the squadlist will be dynamically build in the **{channel_list['squad-list']['name']}**."
   )
 bot_messages = {
-  "bot_startup_message": f"The bot is active now, type '{command_messages['help']}' for help and '{command_messages['exit']}' to shutdown.",
+  "bot_startup_message": f"The bot is active now, type '{command_messages['help']}' for help.",
   "shutdown_message": "The bot will shutdown in 5 seconds.",
   "squad_list_message_init": "Squad list waiting to be build for mission: ",
   "announcements_template": "@everyone The attendance for **{}** on <t:{}:F> is up! Please make sure to mark if you plan to attend.",
-  "contract_accepted": "The contract is correctly formatted and is now ready to be used.\nThis message deletes itself in 5 seconds.",
-  "file_exists": "This mission is already on the server, please give the mission a different name.\nThis message deletes itself in 20 seconds.",
-  "incorrect_format": "Please upload a correct missionfile for arma3.\nThis message deletes itself in 20 seconds.",
-  "incorrect_time": "You have entered an incorrect Date for this mission, its starting time is older than the current time.\nThis message deletes itself in 20 seconds.",
-  "attachement_saved": "Mission is saved in the MPmissions folder on the server.\nThis message deletes itself in 5 seconds.",
-  "no_attachments": "No attachments found in the message, please post a new message.\nThis message deletes itself in 20 seconds.",
-  "insufficient_rights": "Please contact an administrator, it seems that you don't have the necesary role to upload a mission.\nThis message deletes itself in 20 seconds."
+  "announcements_template_mods": "@everyone The attendance for **{}** on <t:{}:F> is up!\nDont forget to download and load the extra mods:\n{}\nPlease make sure to mark if you plan to attend.",
+  "contract_accepted": "The contract is correctly formatted and is now ready to be used.\nThis message autodeletes.",
+  "file_exists": "This mission is already on the server, please give the mission a different name.\nThis message autodeletes.",
+  "incorrect_format": "Please upload a correct missionfile for arma3 (.pbo file).\nThis message autodeletes.",
+  "incorrect_time": "You have entered an incorrect Date for this mission, its starting time is older than the current time.\nThis message autodeletes.",
+  "incorrect_time_format": "You have entered an incorrect Date for this mission, please use the hammertime format: <t:time:F>.\n This message autodeletes.",
+  "incorrect_name_format": "You have entered an incorrect format for the contract name.\nThis message autodeletes.",
+  "attachement_saved": "Mission is saved in the MPmissions folder on the server.\nThis message autodeletes.",
+  "no_attachments": "No attachments found in the message, please post a new message with the mission file.\nThis message autodeletes.",
+  "insufficient_rights": "Please contact an administrator, it seems that you don't have the necesary role to upload a mission.\nThis message autodeletes."
   }
 
 base_api_url = "https://discord.com/api/v10"
@@ -224,13 +235,12 @@ async def on_message(message):
 
     elif message.content.lower() == command_messages["help"]:
       print("Help command executed by: " + message.author.name)
-      await reply_help_message(
+      await reply_message(
         message,
-        help_message_template,
-        channel_list,
-        bot_name,
-        server_name
+        60,
+        help_message_template
         )
+
 
     elif message.content.lower() == command_messages["exit"]:
       await bot_shutdown(
@@ -244,56 +254,51 @@ async def on_message(message):
       mission_name = ""
       for keyword in contract_keywords:
         if message.content.startswith(keyword):
+          incorrect_date = True
           mission_name = regex_compiler(message, contract_keywords[keyword])
-          mission_date = regex_compiler(message, contract_keywords["date"])
+          try:
+            mission_date = regex_compiler(message, contract_keywords["_date"])
+            incorrect_date = False
+          except IndexError:
+            await reply_message(message, 30, bot_messages["incorrect_time_format"])
+          try:
+            extra_mods = regex_compiler(message, contract_keywords["_additional_mods"])
+          except IndexError:
+            extra_mods = ""
+
+          pilot = regex_compiler(message, contract_keywords["_air_assets"])
+          if pilot != []:
+            pilot_role = True
+          else:
+            pilot_role = False
   
-      if mission_name != "" and int(mission_date) > current_time:
-        attendance_channel = await get_channel(
-          guild,
-          channel_list["attendance"]["category"],
-          channel_list["attendance"]["name"]
+      if mission_name != "" and incorrect_date == False:
+        if int(mission_date) > current_time:
+          await create_contract(
+            guild,
+            message,
+            channel_list,
+            bot_messages,
+            mission_list,
+            emoji_list,
+            mission_name,
+            mission_date,
+            extra_mods,
+            pilot_role
+            )
+        else:
+          await reply_message(
+            message,
+            30,
+            bot_messages["incorrect_time"]
+            )
+      
+      elif mission_name == "":
+        await reply_message(
+          message,
+          30,
+          bot_messages["incorrect_name_format"]
           )
-        squad_list_channel = await get_channel(
-          guild,
-          channel_list["squad-list"]["category"],
-          channel_list["squad-list"]["name"]
-          )
-        announcements_channel = await get_channel(
-          guild,
-          channel_list["announcements"]["category"],
-          channel_list["announcements"]["name"]
-          )
-        announcements_message = bot_messages["announcements_template"].format(mission_name, mission_date)
-
-        reposted_message = await attendance_channel.send(message.content)
-        squad_list_message = await squad_list_channel.send(bot_messages["squad_list_message_init"] + mission_name)
-
-        mission_messages = {
-          "mission_name": mission_name,
-          "mission_date": mission_date,
-          "reposted_message": reposted_message,
-          "squad_list_message": squad_list_message,
-          "squad_list": {}
-          }
-
-        mission_count = 0
-        if mission_list != []:
-          for _ in mission_list:
-            mission_count += 1
-
-        mission_list.append({mission_count:mission_messages})
-
-        for emoji in emoji_list:
-          await reposted_message.add_reaction(emoji_list[emoji])
-          
-        await announcements_channel.send(announcements_message)
-
-        if mission_list[mission_count] != {}:
-          await reply_message(message, 10, bot_messages["contract_accepted"])
-
-      elif mission_name != "" and int(mission_date) <= current_time:
-        await reply_message(message, 20, bot_messages["incorrect_time"])
-
 
 
 @client.event
@@ -305,8 +310,6 @@ async def on_raw_reaction_add(event):
   - event
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
-  emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
-  event_member_name = event.member.name
 
   if not event.member.name == bot_name:
     for missions in mission_list:
@@ -319,11 +322,11 @@ async def on_raw_reaction_add(event):
             information["squad_list_message"].id
             )
           information = await reaction_added(
+            guild,
             emoji_list,
-            emoji_filter,
+            event,
             information,
             squad_list_message,
-            event_member_name
             )
 
 
@@ -336,7 +339,7 @@ async def on_raw_reaction_remove(event):
   - event
   '''
   guild = discord.utils.get(client.guilds, name=server_name)
-  emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
+  
   for missions in mission_list:
     for _, information in missions.items():
       if event.message_id == information["reposted_message"].id:
@@ -354,7 +357,7 @@ async def on_raw_reaction_remove(event):
           )
         information = await reaction_deleted(
           emoji_list,
-          emoji_filter,
+          event,
           information,
           squad_list_message,
           reposted_message

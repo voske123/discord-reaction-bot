@@ -55,6 +55,7 @@ def check_custom_emoji(base_api_url, headers, server_id):
     "Command" : "",
     "SL"      : "",
     "Medic"   : "",
+    "Pilot"   : "",
     "MSC"     : "",
     "Maybe"   : ""
     }
@@ -67,7 +68,7 @@ def check_custom_emoji(base_api_url, headers, server_id):
   for custom_emoji in emojis:
     emoji_count = emoji_count + 1
 
-  if emoji_count >= 45:
+  if emoji_count >= (50 - len(emoji_list)):
     print(
       "There are too much custom emoji's on this server. This is a critical problem.\n" +
       "The program will shutdown now."
@@ -142,8 +143,12 @@ def regex_compiler(message, key):
   - key
   '''
   regex = re.compile(key)
-  text = re.findall(regex, message.content)[0]
-
+  if key.startswith("Additional mods: (.*)"):
+    text = re.findall(regex, message.content)
+  elif key.startswith("Air Support: "):
+    text = re.findall(regex, message.content)
+  else:
+    text = re.findall(regex, message.content)[0]
   return text
 
 
@@ -240,8 +245,11 @@ async def get_channel(guild, category_name, channel_name):
   - category_name
   - channel_name
   '''
-  category = discord.utils.get(guild.categories, name=category_name)
-  channel = discord.utils.get(category.channels, name=channel_name)
+  try:
+    category = discord.utils.get(guild.categories, name=category_name)
+    channel = discord.utils.get(category.channels, name=channel_name)
+  except AttributeError:
+    channel = guild.get_channel(channel_name)
 
   return channel
 
@@ -262,37 +270,48 @@ async def get_message(guild, category_name, channel_name, message_id):
   return message
 
 
-async def reaction_added(emoji_list, emoji_filter, information, squad_list_message, event_member_name):
+async def reaction_added(guild, emoji_list, event, information, squad_list_message):
   '''
   Function to check what emoji got added and adjust the reacted lists
 
   PARAMS
+  - guild
   - emoji_list
-  - emoji_filter
+  - event
   - information
   - squad_list_message
-  - event_member_name
   '''
+  emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
+  message = await get_message(guild, "", event.channel_id, event.message_id)
+
   for emoji in emoji_list:
     if emoji_filter == emoji_list[emoji]:
       emoji_reacted = emoji + "_reacted"
-      try:
-        information["squad_list"][emoji_reacted].append(event_member_name)
-      except KeyError:
-        information["squad_list"][emoji_reacted] = []
-        information["squad_list"][emoji_reacted].append(event_member_name)
-    
-      print(f"Added {event_member_name} to the {emoji_reacted} list for mission: {information['mission_name']}.")
-      await send_squad_lists(
-        information["squad_list"],
-        squad_list_message,
-        information['mission_name']
-        )
+      member_exists = False
+      for _, members in information["squad_list"].items():
+        if event.member.name in members:
+          member_exists = True
+
+      if member_exists == False:
+        try:
+          information["squad_list"][emoji_reacted].append(event.member.name)
+        except KeyError:
+          information["squad_list"][emoji_reacted] = []
+          information["squad_list"][emoji_reacted].append(event.member.name)
+      
+        print(f"Added {event.member.name} to the {emoji_reacted} list for mission: {information['mission_name']}.")
+        await send_squad_lists(
+          information["squad_list"],
+          squad_list_message,
+          information['mission_name']
+          )
+      else:
+        await message.remove_reaction(emoji_filter, event.member)
 
   return information
 
 
-async def reaction_deleted(emoji_list, emoji_filter, information, squad_list_message, reposted_message):
+async def reaction_deleted(emoji_list, event, information, squad_list_message, reposted_message):
   '''
   Function to check what emoji got removed and adjust the reacted lists
 
@@ -303,12 +322,21 @@ async def reaction_deleted(emoji_list, emoji_filter, information, squad_list_mes
   - squad_list_message
   - reposted_message
   '''
+
+  emoji_filter = (":"+str(event.emoji.name)+":"+str(event.emoji.id))
+
   for emoji in emoji_list:
     for reaction in reposted_message.reactions:
       reaction_emoji = (":"+str(reaction.emoji.name)+":"+str(reaction.emoji.id))
       if emoji_filter == emoji_list[emoji] and emoji_filter == reaction_emoji:
         emoji_reacted = emoji+"_reacted"
         async for user in reaction.users():
+
+          try:
+            information["squad_list"][emoji_reacted]
+          except KeyError:
+            break
+
           for player in information["squad_list"][emoji_reacted]:
             if not player == user.name:
               information["squad_list"][emoji_reacted].remove(player)
@@ -318,6 +346,7 @@ async def reaction_deleted(emoji_list, emoji_filter, information, squad_list_mes
                 squad_list_message,
                 information['mission_name']
                 )
+          
   return information
 
 
@@ -405,6 +434,7 @@ async def save_attachements(message, command_messages, mission_folder_path, bot_
   '''
   if len(message.attachments) > 0:
     for role in message.author.roles:
+      role_found = False
       if role.name == "Mission_Upload":
         role_found = True
         break
@@ -461,30 +491,85 @@ async def bot_shutdown(client, message, bot_messages, bot_startup):
   - bot_startup
   '''
   print("Shutdown command executed by: " + message.author.name)
-  await bot_startup.edit(content=bot_messages["shutdown_message"])
-  await message.delete()
-  print(bot_messages["shutdown_message"])
-  await asyncio.sleep(4)
-  await bot_startup.delete()
-  await asyncio.sleep(1)
-  await client.close()
+  try:
+    await bot_startup.edit(content=bot_messages["shutdown_message"])
+    await message.delete()
+    print(bot_messages["shutdown_message"])
+    await asyncio.sleep(4)
+    await bot_startup.delete()
+    await asyncio.sleep(1)
+    await client.close()
+  except discord.errors.NotFound:
+    await message.delete()
+    await asyncio.sleep(1)
+    exit()
 
 
-async def reply_help_message(message, help_message_template, channel_list, bot_name, server_name):
+async def create_contract(guild, message, channel_list, bot_messages, mission_list, emoji_list, mission_name, mission_date, extra_mods, pilot_role):
   '''
   Function to reply a help message to a ?help request.
 
   PARAMS:
+  - guild
   - message
-  - help_message_template
   - channel_list
-  - bot_name
-  - server_name
-  '''
-  help_message_content = help_message_template.format(
-    bot_name,
-    server_name,
-    channel_list['zeus-setup']['name'],
-    channel_list['squad-list']['name']
-  )
-  await reply_message(message, 30, help_message_content)
+  - bot_messages
+  - mission_list
+  - emoji_list
+  - mission_name
+  - mission_date
+  '''  
+  attendance_channel = await get_channel(
+    guild,
+    channel_list["attendance"]["category"],
+    channel_list["attendance"]["name"]
+    )
+  squad_list_channel = await get_channel(
+    guild,
+    channel_list["squad-list"]["category"],
+    channel_list["squad-list"]["name"]
+    )
+  announcements_channel = await get_channel(
+    guild,
+    channel_list["announcements"]["category"],
+    channel_list["announcements"]["name"]
+    )
+  if extra_mods == []:
+    announcements_message = bot_messages["announcements_template"].format(mission_name, mission_date)
+  else:
+    mod_list = []
+    for index in range(len(extra_mods)):
+      mod_list.append(f"<{extra_mods[index]}>")
+    
+    announcements_message = bot_messages["announcements_template_mods"].format(mission_name, mission_date, "\n".join(mod_list))
+
+  reposted_message = await attendance_channel.send(message.content)
+  squad_list_message = await squad_list_channel.send(bot_messages["squad_list_message_init"] + mission_name)
+
+  mission_messages = {
+    "mission_name": mission_name,
+    "mission_date": mission_date,
+    "reposted_message": reposted_message,
+    "squad_list_message": squad_list_message,
+    "squad_list": {}
+    }
+
+  mission_count = 0
+  if mission_list != []:
+    for _ in mission_list:
+      mission_count += 1
+
+  mission_list.append({mission_count:mission_messages})
+
+  for emoji in emoji_list:
+    if pilot_role:
+      await reposted_message.add_reaction(emoji_list[emoji])
+    else:
+      if emoji != "Pilot":
+        await reposted_message.add_reaction(emoji_list[emoji])
+
+  await announcements_channel.send(announcements_message)
+
+  if mission_list[mission_count] != {}:
+    await reply_message(message, 10, bot_messages["contract_accepted"])
+
