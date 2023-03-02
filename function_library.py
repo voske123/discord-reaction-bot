@@ -145,7 +145,7 @@ def regex_compiler(message, key):
   regex = re.compile(key)
   if key.startswith("Additional mods: (.*)"):
     text = re.findall(regex, message.content)
-  elif key.startswith("Air Support: "):
+  elif key.startswith("Air Assets: "):
     text = re.findall(regex, message.content)
   else:
     text = re.findall(regex, message.content)[0]
@@ -350,7 +350,7 @@ async def reaction_deleted(emoji_list, event, information, squad_list_message, r
   return information
 
 
-async def old_missions(attendance_channel, squad_list_channel, mission_list, emoji_list, current_time, contract_keywords, bot_name):
+async def old_missions(attendance_channel, squad_list_channel, zeus_planning_channel, mission_list, emoji_list, current_time, contract_keywords, bot_name, date_counter):
   '''
   Function to check old messages on startup.
   If the mission time < 3 weeks before current time then the mission is saved in the mission_list.
@@ -365,13 +365,41 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
   - bot_name
   '''
   mission_count = 0
+  try:
+    zeus_pinned = await zeus_planning_channel.pins()
+    zeus_pinned = zeus_pinned[0]
+    zeus_pinned_content = zeus_pinned.content.splitlines()
+    missions = []
+    for line in zeus_pinned_content:
+      if line[0].isdigit():
+        regex = re.findall(r"(\d{1,2})\s*((\d{2}\s[A-Za-z]+\s\d{4}),\s[A-Za-z]+)\s+(\w+)", line)
+        key = regex[0][0]
+        date = regex[0][2]
+        date = datetime.datetime.strptime(date, "%d %B %Y")
+        date = int(date.timestamp()) + 20*3600
+        zeus = regex[0][3]
+        missions.append({
+          "key": key,
+          "time": date,
+          "zeus": zeus
+        })
+  except:
+    missions = await mission_date_check(date_counter, weekdays=["Wednesday", "Friday"])
+
+  if len(missions) > 0:
+    mission_list += [{mission_count:missions}]
+    mission_count += 1
+
+  if not zeus_pinned:
+    await mission_dates_reply(mission_list, "", 0, zeus_planning_channel, "", True)
+
   async for reposted_message in attendance_channel.history(limit=50, oldest_first=True):
     reposted_message_created = round(datetime.datetime.timestamp(reposted_message.created_at))
     if reposted_message.author.name == bot_name:
       for keyword in contract_keywords:
         if reposted_message.content.startswith(keyword):
           mission_name = regex_compiler(reposted_message, contract_keywords[keyword])
-          mission_date = regex_compiler(reposted_message, contract_keywords["date"])
+          mission_date = regex_compiler(reposted_message, contract_keywords["_date"])
           async for squad_list_message in squad_list_channel.history(limit=50, oldest_first=True):
             squad_list_message_created = round(datetime.datetime.timestamp(squad_list_message.created_at))
             if (reposted_message_created <= squad_list_message_created) and (reposted_message_created + 10 > squad_list_message_created):
@@ -402,7 +430,6 @@ async def old_missions(attendance_channel, squad_list_channel, mission_list, emo
                 mission_list += [{mission_count:mission_messages}]
                 await send_squad_lists(mission_messages["squad_list"], squad_list_message, mission_name)
                 mission_count += 1
-
   return mission_list
 
 
@@ -416,10 +443,11 @@ async def reply_message(message, ttl, content):
   - content
   '''
   reply = await message.reply(content)
-  await asyncio.sleep(ttl)
-  await reply.delete()
-  await asyncio.sleep(1)
-  await message.delete()
+  if ttl != 0:
+    await asyncio.sleep(ttl)
+    await reply.delete()
+    await asyncio.sleep(1)
+    await message.delete()
 
 
 async def save_attachements(message, command_messages, mission_folder_path, bot_messages):
@@ -573,3 +601,92 @@ async def create_contract(guild, message, channel_list, bot_messages, mission_li
   if mission_list[mission_count] != {}:
     await reply_message(message, 10, bot_messages["contract_accepted"])
 
+
+async def mission_date_check(date_counter, weekdays):
+  days_of_week = {
+    'monday': 0,
+    'tuesday': 1,
+    'wednesday': 2,
+    'thursday': 3,
+    'friday': 4,
+    'saturday': 5,
+    'sunday': 6
+  }
+  weekday_numbers = []
+  for key,value in days_of_week.items():
+    for day in weekdays:
+      if key.lower() == day.lower():
+        weekday_numbers.append(value)
+
+  today = datetime.date.today()
+  missions = []
+  day = 0
+  count = 0
+  while len(missions) < date_counter:
+    date = today + datetime.timedelta(days=day)
+    mission_date = datetime.time(hour=20, minute=0, second=0)
+    mission_date = datetime.datetime.combine(date, mission_date)
+    mission_time = int(mission_date.timestamp())
+    if date.weekday() in weekday_numbers:
+      if date == today and datetime.datetime.utcnow().time() >= datetime.time(hour=20, minute=0, second=0):
+        pass
+      else:
+        count +=1
+        missions.append({
+          "key": count,
+          "time": mission_time,
+          "zeus": "FREE"
+        })
+    day += 1
+  return missions
+
+
+async def update_mission_dates(mission_list, date_counter):
+  new_date_list = await mission_date_check(date_counter, weekdays=["Wednesday", "Friday"])
+  count = 0
+  for missions in mission_list:
+    for _,value in missions.items():
+      for i in range(len(value)-1, -1, -1):
+        try:
+          if value[i]["time"] < new_date_list[0]["time"]:
+            del value[i]
+            count += 1
+        except:
+          continue
+      try:
+        if len(value) < 10: 
+          for i in range(len(value)):
+            value[i]["key"] -= count
+
+          for new_date in new_date_list:
+            found = False
+            for mission in value:
+              if mission["time"] == new_date["time"]:
+                found = True
+                break
+            if not found:
+              value.append({
+                "key": len(value) + 1,
+                "time": new_date["time"],
+                "zeus": "FREE"
+              })
+      except:
+        continue
+
+
+async def mission_dates_reply(mission_list, message, ttl, zeus_planning_channel, command_messages, init):
+  content = [f"Date requested: {datetime.date.today().strftime('%d %B %Y')}\n{'Slot':<5}   {'Date':<30}   {'Zeus'}"]
+  for _, values in mission_list[0].items():
+    for value in values:
+      formatted_time = datetime.datetime.fromtimestamp(value['time']).strftime('%d %B %Y, %A')
+      content += [f"{value['key']:<5}   {formatted_time:<30}   {value['zeus']}"]
+  code_block = "```\n{}\n```".format("\n".join(content))
+
+  if init and message == "":
+    init_message = await zeus_planning_channel.send(content=code_block)
+    await init_message.pin()
+  elif message != "":
+    if not message.content.startswith(command_messages["zeus_slots"]):
+      zeus_pinned = await zeus_planning_channel.pins()
+      await zeus_pinned[0].edit(content=code_block)
+    await reply_message(message, ttl, code_block)

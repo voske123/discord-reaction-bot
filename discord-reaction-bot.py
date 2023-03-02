@@ -74,10 +74,18 @@ channel_list = {
     "name":"📣announcements",
     "position":2,
     "topic": "Important announcements are shown here."
+    },
+  "zeus-planning":
+    {
+      "category":"SPECIALIST CHANNELS",
+      "name":"zeus-planning",
+      "position":4,
+      "topic":"Here is the planning for the zeus missions being discussed."
     }
   }
 mission_list = []
 mission_count = 0
+date_counter = 10
 mission_folder_path = "E:\Games\ArmA3\A3Master\mpmissions"
 
 contract_keywords = {
@@ -87,13 +95,17 @@ contract_keywords = {
   "**Operation ": r"..(Operation .*)..",
   "_date": r"Date: <t:(.*):F>",
   "_additional_mods": r"Additional mods: (.*)",
-  "_air_assets": r"Air Assets: "
+  "_air_assets": r"Air Assets: ",
+  "_slot_number": r"!.* (.*)",
   }
 command_messages = {
   "help": "!help",
   "exit": "!exit",
   "add_mission": "!add_mission",
-  "clear_messages": "!clear_messages"
+  "clear_messages": "!clear_messages",
+  "zeus_slots": "!missions",
+  "take_zeus_slot": "!take",
+  "remove_zeus_slot": "!remove",
   }
 
 bot_startup = ""
@@ -179,16 +191,25 @@ async def on_ready():
     channel_list["squad-list"]["category"],
     channel_list["squad-list"]["name"]
     )
+  zeus_planning_channel = await get_channel(
+    guild,
+    channel_list["zeus-planning"]["category"],
+    channel_list["zeus-planning"]["name"]
+    )
+  
 
   mission_list = await old_missions(
     attendance_channel,
     squad_list_channel,
+    zeus_planning_channel,
     mission_list,
     emoji_list,
     current_time,
     contract_keywords,
-    bot_name
+    bot_name,
+    date_counter
     )
+  
   bot_startup = await zeus_setup_channel.send(bot_messages["bot_startup_message"])
 
 
@@ -214,6 +235,42 @@ async def on_message(message):
     print("Last message sent by bot, skipping.")
     return
 
+  elif message.channel.name == channel_list["zeus-planning"]["name"]:
+    zeus_planning_channel = await get_channel(
+      guild,
+      channel_list["zeus-planning"]["category"],
+      channel_list["zeus-planning"]["name"]
+      )
+    
+    if message.content.lower() == command_messages["zeus_slots"]:
+      await update_mission_dates(mission_list, date_counter)
+      await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, False)
+
+
+    elif message.content.lower().startswith(command_messages["take_zeus_slot"]):
+      numbers = message.content.split()[1].split(",")
+      
+      for _, values in mission_list[0].items():
+        for value in values:
+          for number in numbers:
+            if int(value["key"]) == int(number) and value["zeus"] == "FREE":
+              value["zeus"] = message.author.name
+              break
+      await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, False)
+      
+
+    elif message.content.lower().startswith(command_messages["remove_zeus_slot"]):
+      numbers = message.content.split()[1].split(",")
+
+      for _, values in mission_list[0].items():
+        if len(values) > 0:
+          for value in values:
+            for number in numbers:
+              if int(number) == int(value["key"]) and value["zeus"] == message.author.name:
+                value["zeus"] = "FREE"
+                break
+      await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, False)
+      
 
   elif message.channel.name == channel_list["zeus-setup"]["name"]:
     if message.content.lower() == command_messages["add_mission"]:
@@ -240,7 +297,6 @@ async def on_message(message):
         60,
         help_message_template
         )
-
 
     elif message.content.lower() == command_messages["exit"]:
       await bot_shutdown(
@@ -313,21 +369,22 @@ async def on_raw_reaction_add(event):
 
   if not event.member.name == bot_name:
     for missions in mission_list:
-      for _, information in missions.items():
-        if event.message_id == information["reposted_message"].id:
-          squad_list_message = await get_message(
-            guild,
-            channel_list["squad-list"]["category"],
-            channel_list["squad-list"]["name"],
-            information["squad_list_message"].id
-            )
-          information = await reaction_added(
-            guild,
-            emoji_list,
-            event,
-            information,
-            squad_list_message,
-            )
+        for key, information in missions.items():
+          if key != 0:
+            if event.message_id == information["reposted_message"].id:
+              squad_list_message = await get_message(
+                guild,
+                channel_list["squad-list"]["category"],
+                channel_list["squad-list"]["name"],
+                information["squad_list_message"].id
+                )
+              information = await reaction_added(
+                guild,
+                emoji_list,
+                event,
+                information,
+                squad_list_message,
+                )
 
 
 @client.event
@@ -341,27 +398,28 @@ async def on_raw_reaction_remove(event):
   guild = discord.utils.get(client.guilds, name=server_name)
   
   for missions in mission_list:
-    for _, information in missions.items():
-      if event.message_id == information["reposted_message"].id:
-        squad_list_message = await get_message (
-          guild,
-          channel_list["squad-list"]["category"],
-          channel_list["squad-list"]["name"],
-          information["squad_list_message"].id
-          )
-        reposted_message = await get_message (
-          guild,
-          channel_list["attendance"]["category"],
-          channel_list["attendance"]["name"],
-          information["reposted_message"].id
-          )
-        information = await reaction_deleted(
-          emoji_list,
-          event,
-          information,
-          squad_list_message,
-          reposted_message
-          )
+    for key, information in missions.items():
+      if key != 0:
+        if event.message_id == information["reposted_message"].id:
+          squad_list_message = await get_message (
+            guild,
+            channel_list["squad-list"]["category"],
+            channel_list["squad-list"]["name"],
+            information["squad_list_message"].id
+            )
+          reposted_message = await get_message (
+            guild,
+            channel_list["attendance"]["category"],
+            channel_list["attendance"]["name"],
+            information["reposted_message"].id
+            )
+          information = await reaction_deleted(
+            emoji_list,
+            event,
+            information,
+            squad_list_message,
+            reposted_message
+            )
 
 
 
