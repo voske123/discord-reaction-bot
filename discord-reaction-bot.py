@@ -95,7 +95,7 @@ contract_keywords = {
   "**Operation ": r"..(Operation .*)..",
   "_date": r"Date: <t:(.*):F>",
   "_additional_mods": r"Additional mods: (.*)",
-  "_air_assets": r"Air Assets: ",
+  "_air_assets": r"Air Assets",
   "_slot_number": r"!.* (.*)",
   }
 command_messages = {
@@ -211,6 +211,7 @@ async def on_ready():
     )
   
   bot_startup = await zeus_setup_channel.send(bot_messages["bot_startup_message"])
+  print(mission_list)
 
 
 @client.event
@@ -244,12 +245,11 @@ async def on_message(message):
     
     if message.content.lower() == command_messages["zeus_slots"]:
       await update_mission_dates(mission_list, date_counter)
-      await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, False)
+      await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, True)
 
 
     elif message.content.lower().startswith(command_messages["take_zeus_slot"]):
       numbers = message.content.split()[1].split(",")
-      
       for _, values in mission_list[0].items():
         for value in values:
           for number in numbers:
@@ -261,12 +261,17 @@ async def on_message(message):
 
     elif message.content.lower().startswith(command_messages["remove_zeus_slot"]):
       numbers = message.content.split()[1].split(",")
+      for role in message.author.roles:
+        admin = False
+        if role.name == "Mission_Upload":
+          admin = True
+          break
 
       for _, values in mission_list[0].items():
         if len(values) > 0:
           for value in values:
             for number in numbers:
-              if int(number) == int(value["key"]) and value["zeus"] == message.author.name:
+              if int(number) == int(value["key"]) and (value["zeus"] == message.author.name or admin):
                 value["zeus"] = "FREE"
                 break
       await mission_dates_reply(mission_list, message, 30, zeus_planning_channel, command_messages, False)
@@ -324,9 +329,9 @@ async def on_message(message):
 
           pilot = regex_compiler(message, contract_keywords["_air_assets"])
           if pilot != []:
-            pilot_role = True
-          else:
             pilot_role = False
+          elif pilot == []:
+            pilot_role = True
   
       if mission_name != "" and incorrect_date == False:
         if int(mission_date) > current_time:

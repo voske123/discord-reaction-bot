@@ -145,7 +145,7 @@ def regex_compiler(message, key):
   regex = re.compile(key)
   if key.startswith("Additional mods: (.*)"):
     text = re.findall(regex, message.content)
-  elif key.startswith("Air Assets: "):
+  elif key.startswith("Air Assets"):
     text = re.findall(regex, message.content)
   else:
     text = re.findall(regex, message.content)[0]
@@ -654,9 +654,9 @@ async def update_mission_dates(mission_list, date_counter):
         except:
           continue
       try:
-        if len(value) < 10: 
+        if len(value) < 10:
           for i in range(len(value)):
-            value[i]["key"] -= count
+            value[i]["key"] = int(value[i]["key"]) - count
 
           for new_date in new_date_list:
             found = False
@@ -674,19 +674,19 @@ async def update_mission_dates(mission_list, date_counter):
         continue
 
 
-async def mission_dates_reply(mission_list, message, ttl, zeus_planning_channel, command_messages, init):
-  content = [f"Date requested: {datetime.date.today().strftime('%d %B %Y')}\n{'Slot':<5}   {'Date':<30}   {'Zeus'}"]
+async def mission_dates_reply(mission_list, message, ttl, zeus_planning_channel):
+  content = [f"Date requested: {datetime.date.today().strftime('%d %B %Y')}.\n{'Slot':<5}   {'Date':<30}   {'Zeus'}"]
   for _, values in mission_list[0].items():
     for value in values:
       formatted_time = datetime.datetime.fromtimestamp(value['time']).strftime('%d %B %Y, %A')
       content += [f"{value['key']:<5}   {formatted_time:<30}   {value['zeus']}"]
   code_block = "```\n{}\n```".format("\n".join(content))
 
-  if init and message == "":
+  zeus_pinned = await zeus_planning_channel.pins()
+
+  if message == "" and zeus_pinned == []:
     init_message = await zeus_planning_channel.send(content=code_block)
     await init_message.pin()
-  elif message != "":
-    if not message.content.startswith(command_messages["zeus_slots"]):
-      zeus_pinned = await zeus_planning_channel.pins()
-      await zeus_pinned[0].edit(content=code_block)
+  elif message != "" and zeus_pinned != []:
+    await zeus_pinned[0].edit(content=code_block)
     await reply_message(message, ttl, code_block)
